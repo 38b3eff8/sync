@@ -1,3 +1,5 @@
 # Created by .ignore support plugin (hsz.mobi)
-/.md5.sqlite
-/.idea/
+.idea/
+.md5.sqlite
+__pycache__/
+/config.json
