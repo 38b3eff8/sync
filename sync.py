@@ -1,4 +1,4 @@
-#!/Users/zhouyifan/.virtualenvs/work/bin/python
+#!/usr/bin/python3
 import hashlib
 import os
 import sys
@@ -7,33 +7,46 @@ import json
 import sqlite3
 
 
-def init(path):
-    if not os.path.exists(path):
-        return
+class Sync(object):
+    def __init__(self):
+        opts, args = getopt.getopt(sys.argv[1:], 'c:')
+        self.config = None
+        for o, a in opts:
+            if o == '-c' and os.path.exists(a):
+                with open(a, 'r') as f:
+                    self.config = json.load(f)
 
-    def travel_path(path):
-        print(path)
+        if self.config is None:
+            return
+
+        if 'path' not in self.config:
+            return
+
+        # todo: load database from qiniu or other cloud
+
+        self.db = DBObject(self.config['path'])
+        self._update_db()
+
+    def _update_db(self):
+        path = self.config['path']
         if not os.path.exists(path):
             return
 
-        for subpath in os.listdir(path):
-            subpath = path + '/' + subpath
-            if os.path.isdir(subpath):
-                travel_path(subpath)
-            elif os.path.isfile(subpath):
-                print('{path}: {md5}'.format(
-                    path=subpath, md5=md5sum(subpath))
-                )
-    travel_path(path)
+        self._travel_path(path, lambda sub_path, md5: print('{path}: {md5}'.format(path=sub_path, md5=md5)))
+
+    def _travel_path(self, path, callback):
+        if not os.path.exists(path):
+            return
+
+        for sub_path in os.listdir(path):
+            sub_path = path + '/' + sub_path
+            if os.path.isdir(sub_path):
+                self._travel_path(sub_path, callback)
+            elif os.path.isfile(sub_path):
+                callback(sub_path, md5sum(sub_path))
 
 
 def md5sum(file_name):
-    """
-    根据给定文件名计算文件MD5值
-    :param file_name: 文件的路径
-    :return: 返回文件MD5校验值
-    """
-
     def read_chunks(fp):
         fp.seek(0)
         chunk = fp.read(8 * 1024)
@@ -55,43 +68,70 @@ def md5sum(file_name):
     return m.hexdigest()
 
 
-def save_to_db():
-    conn = get_connet()
+class DBObject(object):
+    def __init__(self, db_dir):
+        self.db_path = db_dir + '/.md5.sqlite'
+        if not os.path.exists(self.db_path):
+            self._init_db()
+        else:
+            self.conn = sqlite3.connect(self.db_path)
 
+        self.conn.row_factory = sqlite3.Row
 
-def get_connet():
-    if os.path.exists('.md5.sqlite'):
-        return init_db()
-    else:
-        return sqlite3.connect('.md5.sqlite3')
+    def _init_db(self):
+        self.conn = sqlite3.connect(self.db_path)
+        cur = self.conn.cursor()
+        cur.execute('''
+            CREATE TABLE file_md5 (
+              full_path  TEXT PRIMARY KEY,
+              md5        TEXT,
+              created_at TIMESTAMP DEFAULT (datetime('now', 'localtime')),
+              updated_at TIMESTAMP DEFAULT (datetime('now', 'localtime'))
+            )''')
+        self.conn.commit()
 
+    def save(self, full_path, md5):
+        cur = self.conn.cursor()
 
-def init_db():
-    conn = sqlite3.connect('.md5.sqlite')
-    cur = conn.cursor()
-    cur.execute('''
-        CREATE TABLE file_md5 (
-            name       TEXT,
-            md5        TEXT,
-            created_at TIMESTAMP DEFAULT (datetime('now', 'localtime')),
-            updated_at TIMESTAMP DEFAULT (datetime('now', 'localtime'))
-        );''')
+        def update(full_path, md5):
+            cur.execute('''
+            UPDATE file_md5
+            SET full_path=?,
+                md5=?,
+                updated_at=(datetime('now', 'localtime'))
+            WHERE full_path=?
+            ''', (full_path, md5, full_path))
 
-    return conn
+        def insert(full_path, md5):
+            cur.execute('''
+            INSERT INTO file_md5(full_path, md5)
+            VALUES(?, ?)
+            ''', (full_path, md5))
 
+        if self.get(full_path):
+            update(full_path, md5)
+        else:
+            insert(full_path, md5)
 
-def main():
-    opts, args = getopt.getopt(sys.argv[1:], 'c:')
-    config = None
-    for o, a in opts:
-        if o == '-c' and os.path.exists(a):
-            with open(a, 'r') as f:
-                config = json.load(f)
+        self.conn.commit()
 
-    if 'path' in config:
-        init(config['path'])
-    else:
-        return
+    def get(self, full_path):
+        cur = self.conn.cursor()
+        cur.execute('''
+        SELECT *
+        FROM file_md5
+        WHERE full_path=?
+        ''', (full_path,))
+
+        return cur.fetchone()
+
+    def delete(self, full_path):
+        cur = self.conn.cursor()
+        cur.execute('''
+        DELETE FROM file_md5 WHERE full_path=?
+        ''', (full_path,))
+        self.conn.commit()
+
 
 if __name__ == '__main__':
-    main()
+    pass
