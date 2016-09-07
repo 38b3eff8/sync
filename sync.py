@@ -7,6 +7,7 @@ import json
 import sqlite3
 import requests
 import qiniu
+import time
 
 
 class Sync(object):
@@ -33,8 +34,22 @@ class Sync(object):
         self.qiniu = QiniuObject(**qiniu_config)
 
         # todo: load database from qiniu or other cloud
+        db_dir = self.config['path'] + '/' + self.config['folder']
+        db_path = db_dir + '/.md5.sqlite'
+        if os.path.exists(db_path):
+            # todo: 如果存在，尝试更新sqlite
+            info = self.qiniu.get_file_info(db_path)
+            if info:
+                ret = json.loads(info.text_body)
+                if os.stat().st_atime < ret['putTime'] / 10000000:
+                    # todo: download file                    
+            else:
+                pass
+        else:
+            # 尝试下载数据库
+            self.qiniu.download_and_save_file(db_path)
 
-        self.db = DBObject(self.config['path'] + '/' + self.config['folder'])
+        self.db = DBObject(db_path)
         self._update_db()
 
     def _update_db(self):
@@ -90,21 +105,36 @@ class QiniuObject(object):
     def upload_file(self, path):
         token = self.q.upload_token(self.bucket_name, path, 3600)
         ret, info = qiniu.put_file(token, path, path)
-        return ret, info
+        return info
 
     def download_file(self, path):
         base_url = 'http://%s/%s' % (self.bucket_domain, path)
 
         private_url = self.q.private_download_url(base_url, expires=3600)
         r = requests.get(private_url)
-        assert r.status_code == 200
-        return r
+        if 200 <= r.status_code < 300:
+            return r
+        return None
+
+    def download_and_save_file(self, path):
+        r = self.download_file(path)
+        if r is None:
+            return
+
+        with open(path, 'wb') as f:
+            f.write(r.content)
+
+    def delete_file(self, path):
+        bucket = qiniu.BucketManager(self.q)
+        ret, info = bucket.delete(self.bucket_name, path)
+        return info
 
     def get_file_info(self, path):
-        bucket = qiniu.BucketManager(q)
-
+        bucket = qiniu.BucketManager(self.q)
         ret, info = bucket.stat(self.bucket_name, path)
-        return ret, info
+        if ret is None:
+            return None
+        return info
 
 
 class DBObject(object):

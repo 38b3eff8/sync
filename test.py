@@ -1,4 +1,4 @@
-#!/Users/zhouyifan/.virtualenvs/work/bin/python3
+#!/home/zhouyifan/.virtualenvs/work/bin/python
 import unittest
 import sync
 import os
@@ -36,14 +36,31 @@ class QiniuObjectTest(unittest.TestCase):
             self.q = sync.QiniuObject(**config['qiniu'])
 
     def test_upload_file(self):
-        ret, info = self.q.upload_file('test.py')
+        info = self.q.upload_file('test.py')
+        ret = json.loads(info.text_body)
         self.assertIn('hash', ret)
         self.assertEqual(ret['hash'], etag('test.py'))
 
     def test_download_file(self):
         r = self.q.download_file('test.py')
+        self.assertIsNotNone(r)
         self.assertEqual(r.status_code, 200)
 
+    def test_download_file_none(self):
+        r = self.q.download_file('test_none.py')
+        self.assertIsNone(r)
+
+    def test_get_file_info(self):
+        info = self.q.get_file_info('test.py')
+        ret = json.loads(info.text_body)
+        print(ret['putTime'])
+        self.assertIsNotNone(info)
+        self.assertIn('hash', ret)
+        self.assertEqual(ret['hash'], etag('test.py'))
+
+    def test_get_file_info_none(self):
+        info = self.q.get_file_info('test_none.py')
+        self.assertIsNone(info)
 
 if __name__ == '__main__':
     if os.path.exists('./.md5.sqlite'):
