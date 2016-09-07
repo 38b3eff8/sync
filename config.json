@@ -1,3 +1,10 @@
 {
-  "path": "/Users/zhouyifan/test"
+    "path": "/Users/zhouyifan",
+    "folder": "test",
+    "qiniu": {
+        "access_key": "HoId5fqVevUfPOgZtxgoHmD2l72dPGWcMOB60rMY",
+        "secret_key": "srcLOV3vFMVzeFXpGj5755CBPUHyDzLPfgGLmajs",
+        "bucket_name": "test",
+        "bucket_domain": "od44i8avy.bkt.clouddn.com"
+    }
 }
