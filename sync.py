@@ -5,9 +5,12 @@ import sys
 import getopt
 import json
 import sqlite3
+import requests
+import qiniu
 
 
 class Sync(object):
+
     def __init__(self):
         opts, args = getopt.getopt(sys.argv[1:], 'c:')
         self.config = None
@@ -22,17 +25,26 @@ class Sync(object):
         if 'path' not in self.config:
             return
 
+        if 'qiniu' not in self.config:
+            return
+        else:
+            qiniu_config = self.config['qiniu']
+
+        self.qiniu = QiniuObject(**qiniu_config)
+
         # todo: load database from qiniu or other cloud
 
-        self.db = DBObject(self.config['path'])
+        self.db = DBObject(self.config['path'] + '/' + self.config['folder'])
         self._update_db()
 
     def _update_db(self):
-        path = self.config['path']
+        path = self.config['path'] + '/' + self.config['folder']
         if not os.path.exists(path):
             return
 
-        self._travel_path(path, lambda sub_path, md5: print('{path}: {md5}'.format(path=sub_path, md5=md5)))
+        self._travel_path(
+            path,
+            lambda sub_path, md5: print('{path}: {md5}'.format(path=sub_path, md5=md5)))
 
     def _travel_path(self, path, callback):
         if not os.path.exists(path):
@@ -68,7 +80,35 @@ def md5sum(file_name):
     return m.hexdigest()
 
 
+class QiniuObject(object):
+
+    def __init__(self, access_key, secret_key, bucket_name, bucket_domain):
+        self.q = qiniu.Auth(access_key, secret_key)
+        self.bucket_name = bucket_name
+        self.bucket_domain = bucket_domain
+
+    def upload_file(self, path):
+        token = self.q.upload_token(self.bucket_name, path, 3600)
+        ret, info = qiniu.put_file(token, path, path)
+        return ret, info
+
+    def download_file(self, path):
+        base_url = 'http://%s/%s' % (self.bucket_domain, path)
+
+        private_url = self.q.private_download_url(base_url, expires=3600)
+        r = requests.get(private_url)
+        assert r.status_code == 200
+        return r
+
+    def get_file_info(self, path):
+        bucket = qiniu.BucketManager(q)
+
+        ret, info = bucket.stat(self.bucket_name, path)
+        return ret, info
+
+
 class DBObject(object):
+
     def __init__(self, db_dir):
         self.db_path = db_dir + '/.md5.sqlite'
         if not os.path.exists(self.db_path):

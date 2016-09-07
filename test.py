@@ -1,10 +1,13 @@
-#!/usr/bin/python3
+#!/Users/zhouyifan/.virtualenvs/work/bin/python3
 import unittest
 import sync
 import os
+import json
+from qiniu import etag
 
 
-class UnitTest(unittest.TestCase):
+class DBObjectTest(unittest.TestCase):
+
     def setUp(self):
         self.db_path = '.'
         self.db_object = sync.DBObject(self.db_path)
@@ -23,6 +26,23 @@ class UnitTest(unittest.TestCase):
         row = self.db_object.get('test1')
         self.assertEqual('test1', row['full_path'])
         self.assertNotEqual('md5', row['md5'])
+
+
+class QiniuObjectTest(unittest.TestCase):
+
+    def setUp(self):
+        with open('config.json') as f:
+            config = json.load(f)
+            self.q = sync.QiniuObject(**config['qiniu'])
+
+    def test_upload_file(self):
+        ret, info = self.q.upload_file('test.py')
+        self.assertIn('hash', ret)
+        self.assertEqual(ret['hash'], etag('test.py'))
+
+    def test_download_file(self):
+        r = self.q.download_file('test.py')
+        self.assertEqual(r.status_code, 200)
 
 
 if __name__ == '__main__':
