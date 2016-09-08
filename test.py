@@ -1,4 +1,4 @@
-#!/home/zhouyifan/.virtualenvs/work/bin/python
+#!/Users/zhouyifan/.virtualenvs/work/bin/python
 import unittest
 import sync
 import os
@@ -9,11 +9,11 @@ from qiniu import etag
 class DBObjectTest(unittest.TestCase):
 
     def setUp(self):
-        self.db_path = '.'
+        self.db_path = './.md5.sqlite'
         self.db_object = sync.DBObject(self.db_path)
 
     def test_db_init(self):
-        self.assertTrue(os.path.exists(self.db_path + '/.md5.sqlite'))
+        self.assertTrue(os.path.exists(self.db_path))
 
     def test_db_save(self):
         self.db_object.save('test1', 'md5')

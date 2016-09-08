@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+#!/Users/zhouyifan/.virtualenvs/work/bin/python
 import hashlib
 import os
 import sys
@@ -33,40 +33,64 @@ class Sync(object):
 
         self.qiniu = QiniuObject(**qiniu_config)
 
-        # todo: load database from qiniu or other cloud
-        db_dir = self.config['path'] + '/' + self.config['folder']
-        db_path = db_dir + '/.md5.sqlite'
+        if not os.path.exists(self.config['path']):
+            os.mkdir(self.config['path'])
+
+        os.chdir(self.config['path'])
+        db_path = '.md5.sqlite'
         if os.path.exists(db_path):
-            # todo: 如果存在，尝试更新sqlite
             info = self.qiniu.get_file_info(db_path)
             if info:
                 ret = json.loads(info.text_body)
-                if os.stat().st_atime < ret['putTime'] / 10000000:
-                    # todo: download file                    
-            else:
-                pass
+                if os.stat(db_path).st_atime < ret['putTime'] / 10000000:
+                    self.qiniu.download_and_save_file(db_path)
         else:
-            # 尝试下载数据库
             self.qiniu.download_and_save_file(db_path)
 
         self.db = DBObject(db_path)
         self._update_db()
 
     def _update_db(self):
-        path = self.config['path'] + '/' + self.config['folder']
-        if not os.path.exists(path):
-            return
+        def update_file(sub_path, md5):
+            row = self.db.get(sub_path)
+            if row:
+                db_md5 = row['md5']
+                if db_md5 != md5:
+                    mtime = os.stat(sub_path).st_mtime
+                    db_time = time.mktime(time.strptime(row['updated_at'], '%Y-%m-%d %H:%M:%S'))
+                    if mtime > db_time:
+                        self.qiniu.upload_file(sub_path)
+                        self.db.save(sub_path, md5)
+                        print('{md5} {sub_path}'.format(md5=md5, sub_path=sub_path))
+                    elif mtime < db_time:
+                        self.qiniu.download_and_save_file(sub_path)
+                        self.db.save(sub_path, md5sum(sub_path))
+                        print('{md5} {sub_path}'.format(md5=md5, sub_path=sub_path))
+            else:
+                info = self.qiniu.upload_file(sub_path)
+                # todo: save put_time
+                self.db.save(sub_path, md5)
+                print('{md5} {sub_path}'.format(md5=md5, sub_path=sub_path))
 
-        self._travel_path(
-            path,
-            lambda sub_path, md5: print('{path}: {md5}'.format(path=sub_path, md5=md5)))
+        self._travel_path('.', update_file)
+        self.qiniu.upload_file('.md5.sqlite')
+
+        for row in self.db.get_all():
+            path = row['full_path']
+            if os.path.exists(path):
+                continue
+
+            self.qiniu.download_and_save_file(path)
 
     def _travel_path(self, path, callback):
         if not os.path.exists(path):
             return
 
         for sub_path in os.listdir(path):
-            sub_path = path + '/' + sub_path
+            if path != '.':
+                sub_path = path + '/' + sub_path
+            else:
+                sub_path = sub_path
             if os.path.isdir(sub_path):
                 self._travel_path(sub_path, callback)
             elif os.path.isfile(sub_path):
@@ -121,6 +145,10 @@ class QiniuObject(object):
         if r is None:
             return
 
+        basename, filename = os.path.split(path)
+        if basename and not os.path.exists(basename):
+            os.mkdir(basename)
+
         with open(path, 'wb') as f:
             f.write(r.content)
 
@@ -139,8 +167,8 @@ class QiniuObject(object):
 
 class DBObject(object):
 
-    def __init__(self, db_dir):
-        self.db_path = db_dir + '/.md5.sqlite'
+    def __init__(self, db_path):
+        self.db_path = db_path
         if not os.path.exists(self.db_path):
             self._init_db()
         else:
@@ -195,6 +223,15 @@ class DBObject(object):
 
         return cur.fetchone()
 
+    def get_all(self):
+        cur = self.conn.cursor()
+        cur.execute('''
+        SELECT *
+        FROM file_md5
+        ''')
+
+        return cur.fetchall()
+
     def delete(self, full_path):
         cur = self.conn.cursor()
         cur.execute('''
@@ -204,4 +241,4 @@ class DBObject(object):
 
 
 if __name__ == '__main__':
-    pass
+    sync = Sync()

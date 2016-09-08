@@ -3,4 +3,5 @@
 .md5.sqlite
 __pycache__/
 config.json
+config2.json
 *.pyc
